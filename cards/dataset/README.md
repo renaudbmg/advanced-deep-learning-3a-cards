@@ -21,7 +21,6 @@ Options de `generate_dataset` :
 | `--out-dir` | `data/synthetic` | Dossier de sortie |
 | `--cards-dir` | `data/cards` | Dossier des images de cartes |
 | `--seed` | 0 | Graine du split train ; val et test utilisent `seed + 1` et `seed + 2` |
-| `--yolo` | désactivé | Exporte aussi les trois splits au format YOLO, pour le fine-tuning |
 
 Le notebook [visualisation.ipynb](visualisation.ipynb) affiche des exemples d'images avec leurs boîtes, et des statistiques sur le dataset.
 
@@ -32,18 +31,20 @@ Le notebook [visualisation.ipynb](visualisation.ipynb) affiche des exemples d'im
 | [../deck.py](../deck.py) | (partagé avec tout le package) Les 52 cartes et leurs attributs : rang, enseigne, couleur, figure ou non, nom, `class_id`. |
 | [assets.py](assets.py) | Télécharge les images des cartes depuis Wikimedia Commons. |
 | [scene.py](scene.py) | Compose une image : fond, placement des cartes, retouches. Renvoie l'image, les cartes et les boîtes de leurs coins. |
-| [generate_dataset.py](generate_dataset.py) | Répète la composition pour chaque image, écrit les images et `annotations.json`, et l'export YOLO. |
+| [generate_dataset.py](generate_dataset.py) | Répète la composition pour chaque image, écrit les images, les étiquettes YOLO, `annotations.json` et `data.yaml`. |
 
 ## Format des données produites
 
-C'est ce que lit l'entraînement.
+Le même dossier sert à notre code et à Ultralytics : les images ne sont écrites qu'une fois.
 
 ```
+data/synthetic/data.yaml                           pour Ultralytics : chemins des splits et noms des 52 classes
 data/synthetic/{train,val,test}/images/000000.jpg
-data/synthetic/{train,val,test}/annotations.json
-data/synthetic/yolo/{train,val,test}/{images,labels}/   (avec --yolo)
-data/synthetic/yolo/data.yaml
+data/synthetic/{train,val,test}/labels/000000.txt  étiquettes YOLO, une ligne par coin visible
+data/synthetic/{train,val,test}/annotations.json   annotations complètes : cartes, coins, visibilité
 ```
+
+Ultralytics trouve les étiquettes d'une image en remplaçant `/images/` par `/labels/` dans son chemin : il suffit que `labels/` soit à côté de `images/`.
 
 ```json
 {
@@ -71,7 +72,7 @@ data/synthetic/yolo/data.yaml
 - `visible` : `visibility ≥ min_corner_visibility` (0,7). Chaque carte a au moins un coin visible.
 - `class_id` : numéro de la carte de 0 à 51, égal à `enseigne × 13 + rang` (enseignes : hearts, diamonds, clubs, spades ; rangs : 2 à 10, jack, queen, king, ace).
 - `cards` peut être vide : c'est une image sans carte.
-- Export YOLO : un fichier `.txt` par image, une ligne `class_id cx cy w h` par **coin visible** (valeurs entre 0 et 1), et un fichier vide pour une image sans carte. Les coins trop cachés ne sont pas exportés. `data.yaml` donne les chemins des trois splits et les 52 noms de classes : c'est le fichier à passer à Ultralytics.
+- `labels/*.txt` : un fichier par image, une ligne `class_id cx cy w h` par **coin visible** (valeurs entre 0 et 1), et un fichier vide pour une image sans carte. Les coins trop cachés ne sont pas écrits : YOLO n'a pas de notion de « boîte à ignorer ». C'est une vue réduite de `annotations.json`, qui reste la référence.
 
 **Une carte = un `class_id`.** Les cartes sont tirées sans remise : une carte apparaît au plus une fois par image. Deux coins détectés avec le même `class_id` appartiennent donc forcément à la même carte, et c'est ainsi qu'on regroupe les détections par carte.
 

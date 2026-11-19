@@ -23,10 +23,11 @@ pip install -r requirements.txt
 - `cards/` : le code du projet, un sous-dossier par étape, chacun avec un README qui explique ses décisions.
   - [cards/deck.py](cards/deck.py) : les 52 cartes et leurs attributs, partagés par toutes les étapes.
   - [cards/dataset/](cards/dataset/) : génération du dataset synthétique de cartes à jouer ([README](cards/dataset/README.md)).
+  - [cards/detection/](cards/detection/) : fine-tuning de YOLO et passage des coins détectés aux cartes ([README](cards/detection/README.md)).
 - `notebooks/` : notebooks d'exploration communs.
 - `docs/` : rapport, supports de soutenance, liens utiles.
 
-Le dossier `data/` (cartes téléchargées, dataset généré) n'est pas versionné.
+Les dossiers `data/` (cartes téléchargées, dataset généré) et `runs/` (entraînements YOLO) ne sont pas versionnés.
 
 ## Démarrage rapide
 
@@ -34,7 +35,8 @@ Depuis la racine du repo :
 
 ```bash
 python -m cards.dataset.assets                    # télécharge les 52 cartes dans data/cards/
-python -m cards.dataset.generate_dataset --yolo   # génère le dataset dans data/synthetic/
+python -m cards.dataset.generate_dataset          # génère le dataset dans data/synthetic/
+python -m cards.detection.train                   # fine-tune YOLO, poids dans runs/detect/
 ```
 
 

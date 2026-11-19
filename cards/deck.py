@@ -1,4 +1,4 @@
-"""Les 52 cartes du jeu et leurs attributs (rang, enseigne, couleur)."""
+"""Les 52 cartes du jeu et leurs attributs (rang, enseigne, couleur), partagés par tout le package."""
 
 from dataclasses import dataclass
 

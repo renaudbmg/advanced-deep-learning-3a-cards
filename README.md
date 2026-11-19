@@ -36,3 +36,8 @@ Depuis la racine du repo :
 python -m cards.dataset.assets                    # télécharge les 52 cartes dans data/cards/
 python -m cards.dataset.generate_dataset --yolo   # génère le dataset dans data/synthetic/
 ```
+
+
+## Notes
+
+Pour le moment Renaud part sur YOLOv8s car têtes sans ancres, petites objets et facilité d'utilisation.

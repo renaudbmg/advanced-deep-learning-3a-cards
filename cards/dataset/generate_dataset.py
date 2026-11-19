@@ -1,13 +1,14 @@
-"""Génère le dataset synthétique : images de cartes + boîte et nom de chaque carte.
+"""Génère le dataset synthétique : images de cartes + nom de chaque carte et boîtes de ses deux coins.
 
 Usage :
-    python -m scratch.dataset_generation.generate_dataset --n-train 20000 --n-val 2000 --n-test 2000
-    python -m scratch.dataset_generation.generate_dataset --yolo   # exporte aussi le test au format YOLO
+    python -m cards.dataset.generate_dataset --n-train 20000 --n-val 2000 --n-test 2000
+    python -m cards.dataset.generate_dataset --yolo   # exporte aussi les trois splits au format YOLO
 
 Structure produite :
     data/synthetic/{train,val,test}/images/000000.jpg
     data/synthetic/{train,val,test}/annotations.json
-    data/synthetic/yolo/                              (avec --yolo)
+    data/synthetic/yolo/{train,val,test}/{images,labels}/   (avec --yolo)
+    data/synthetic/yolo/data.yaml
 """
 
 import argparse
@@ -17,10 +18,10 @@ from pathlib import Path
 
 import numpy as np
 
-from .cards import DECK
-from .scene import load_card_images, make_scene
+from ..deck import DECK
+from .scene import MIN_CORNER_VISIBILITY, load_card_images, make_scene
 
-IMAGE_SIZE = 256
+IMAGE_SIZE = 384
 
 
 def generate_split(out_dir, n_images, card_images, seed):
@@ -28,26 +29,37 @@ def generate_split(out_dir, n_images, card_images, seed):
     (out_dir / "images").mkdir(parents=True, exist_ok=True)
     items = []
     for i in range(n_images):
-        image, cards, boxes = make_scene(card_images, rng, IMAGE_SIZE)
+        image, cards, corners = make_scene(card_images, rng, IMAGE_SIZE)
         image_path = f"images/{i:06d}.jpg"
         image.save(out_dir / image_path, quality=92)
         items.append(
             {
                 "image": image_path,
-                "cards": [{"name": card.name, "class_id": card.class_id, "box": box} for card, box in zip(cards, boxes)],
+                "cards": [
+                    {
+                        "name": card.name,
+                        "class_id": card.class_id,
+                        "corners": [{**corner, "visible": corner["visibility"] >= MIN_CORNER_VISIBILITY} for corner in card_corners],
+                    }
+                    for card, card_corners in zip(cards, corners)
+                ],
             }
         )
         if (i + 1) % 1000 == 0:
             print(f"  {i + 1}/{n_images}")
 
-    annotations = {"image_size": IMAGE_SIZE, "items": items}
+    annotations = {"image_size": IMAGE_SIZE, "min_corner_visibility": MIN_CORNER_VISIBILITY, "items": items}
     (out_dir / "annotations.json").write_text(json.dumps(annotations))
     n_cards = sum(len(item["cards"]) for item in items)
-    print(f"{out_dir}: {n_images} images, {n_cards} cartes")
+    n_visible = sum(c["visible"] for item in items for card in item["cards"] for c in card["corners"])
+    print(f"{out_dir}: {n_images} images, {n_cards} cartes, {n_visible} coins visibles sur {2 * n_cards}")
 
 
 def export_yolo(split_dir, yolo_dir):
-    """Format YOLO : une classe par carte, boîtes (cx, cy, w, h) normalisées."""
+    """Format YOLO : une ligne par coin visible, classe = carte, boîte (cx, cy, w, h) normalisée.
+
+    Les coins trop cachés ne sont pas exportés : YOLO n'a pas de notion de « boîte à ignorer ».
+    """
     annotations = json.loads((split_dir / "annotations.json").read_text())
     size = annotations["image_size"]
     (yolo_dir / "images").mkdir(parents=True, exist_ok=True)
@@ -57,17 +69,24 @@ def export_yolo(split_dir, yolo_dir):
         shutil.copy(image_path, yolo_dir / "images" / image_path.name)
         lines = []
         for card in item["cards"]:
-            x1, y1, x2, y2 = card["box"]
-            cx, cy, w, h = (x1 + x2) / 2 / size, (y1 + y2) / 2 / size, (x2 - x1) / size, (y2 - y1) / size
-            lines.append(f"{card['class_id']} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+            for corner in card["corners"]:
+                if not corner["visible"]:
+                    continue
+                x1, y1, x2, y2 = corner["box"]
+                cx, cy, w, h = (x1 + x2) / 2 / size, (y1 + y2) / 2 / size, (x2 - x1) / size, (y2 - y1) / size
+                lines.append(f"{card['class_id']} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
         # Image sans carte : fichier d'étiquettes vide, c'est la convention YOLO
         (yolo_dir / "labels" / f"{image_path.stem}.txt").write_text("".join(f"{line}\n" for line in lines))
 
-    names = "\n".join(f"  {card.class_id}: {card.name}" for card in DECK)
-    (yolo_dir / "data.yaml").write_text(
-        f"path: {yolo_dir.resolve()}\ntrain: images\nval: images\ntest: images\nnames:\n{names}\n"
-    )
     print(f"Export YOLO : {yolo_dir}/")
+
+
+def write_yolo_yaml(yolo_root):
+    """data.yaml lu par Ultralytics : chemins des trois splits et noms des 52 classes."""
+    names = "\n".join(f"  {card.class_id}: {card.name}" for card in DECK)
+    (yolo_root / "data.yaml").write_text(
+        f"path: {yolo_root.resolve()}\ntrain: train/images\nval: val/images\ntest: test/images\nnames:\n{names}\n"
+    )
 
 
 def main():
@@ -78,7 +97,7 @@ def main():
     parser.add_argument("--n-val", type=int, default=2000)
     parser.add_argument("--n-test", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--yolo", action="store_true", help="exporte aussi le split test au format YOLO")
+    parser.add_argument("--yolo", action="store_true", help="exporte aussi les trois splits au format YOLO")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -88,7 +107,9 @@ def main():
         generate_split(out_dir / split, n_images, card_images, args.seed + offset)
 
     if args.yolo:
-        export_yolo(out_dir / "test", out_dir / "yolo")
+        for split in ("train", "val", "test"):
+            export_yolo(out_dir / split, out_dir / "yolo" / split)
+        write_yolo_yaml(out_dir / "yolo")
 
 
 if __name__ == "__main__":

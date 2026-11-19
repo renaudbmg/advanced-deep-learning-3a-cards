@@ -3,7 +3,7 @@
 Source : Wikimedia Commons, catégorie « Playing cards set by Byron Knoll ».
 Wikimedia fournit une version PNG des fichiers SVG, il n'y a donc rien à convertir.
 
-Usage : python -m scratch.dataset_generation.assets
+Usage : python -m cards.dataset.assets
 """
 
 import argparse
@@ -13,7 +13,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from .cards import DECK
+from ..deck import DECK
 
 API_URL = "https://commons.wikimedia.org/w/api.php"
 USER_AGENT = "advanced-deep-learning-3a/0.1 (student project, playing card grounding)"

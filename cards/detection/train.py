@@ -22,6 +22,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch", type=int, default=32)
     parser.add_argument("--device", default="mps", help="mps (GPU du Mac), cuda ou cpu")
+    parser.add_argument("--patience", type=int, default=10, help="arrêt si la validation ne progresse plus pendant N epochs")
     parser.add_argument("--name", default=None, help="nom du dossier dans runs/detect/ (défaut : nom du modèle)")
     args = parser.parse_args()
 
@@ -33,6 +34,7 @@ def main():
         batch=args.batch,
         device=args.device,
         fliplr=0.0,  # une carte vue en miroir n'existe pas : pas de retournement horizontal
+        patience=args.patience,  # le premier entraînement plafonnait vers l'epoch 25 : inutile d'aller au bout
         project=str(Path("runs/detect").resolve()),
         name=args.name or Path(args.model).stem,
     )

@@ -18,7 +18,7 @@ from collections import defaultdict
 from itertools import combinations
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from ..dataset.scene import CARD_SIZE, CORNER_TOP_LEFT
 from ..deck import DECK
@@ -90,14 +90,14 @@ def group_corners(detections):
     return cards, discarded
 
 
-def detect(model, image, conf=0.25):
-    """Image (chemin ou PIL) -> scène."""
+def detect(model, image, conf=0.25, imgsz=IMAGE_SIZE):
+    """Image (chemin ou PIL) -> scène. imgsz : taille d'entrée du réseau (384, celle de l'entraînement)."""
     if not isinstance(image, Image.Image):
         image = Image.open(image)
     image = image.convert("RGB")
     # agnostic_nms : si deux classes sont prédites sur le même coin, seule la plus confiante reste.
     # Les deux coins d'une même carte ne se recouvrent pas, ils survivent tous les deux.
-    result = model.predict(image, imgsz=IMAGE_SIZE, conf=conf, agnostic_nms=True, verbose=False)[0]
+    result = model.predict(image, imgsz=imgsz, conf=conf, agnostic_nms=True, verbose=False)[0]
     detections = [
         {"class_id": int(c), "box": [round(v) for v in box], "confidence": float(p)}
         for box, c, p in zip(result.boxes.xyxy.tolist(), result.boxes.cls.tolist(), result.boxes.conf.tolist())
@@ -106,18 +106,30 @@ def detect(model, image, conf=0.25):
     return {"image_size": list(image.size), "cards": cards}
 
 
-def draw_scene(image, scene):
+def label_font(size=14):
+    """Une police avec les accents (« fantômes »), que la police par défaut de PIL n'a pas."""
+    for name in ("Arial.ttf", "DejaVuSans.ttf"):  # macOS et Windows, puis Linux (Colab)
+        try:
+            return ImageFont.truetype(name, size)
+        except OSError:
+            continue
+    return ImageFont.load_default(size=size)
+
+
+def draw_scene(image, scene, font_size=14):
     """Dessine les coins (vert), la boîte de chaque carte (jaune) et son nom."""
     image = image.convert("RGB").copy()
     draw = ImageDraw.Draw(image)
+    font = label_font(font_size)
     for card in scene["cards"]:
         draw.rectangle([card["box"][0], card["box"][1], card["box"][2] - 1, card["box"][3] - 1], outline="yellow")
         for corner in card["corners"]:
             draw.rectangle([corner[0], corner[1], corner[2] - 1, corner[3] - 1], outline="lime", width=2)
         x1, y1 = card["corners"][0][:2]
         label = f"{card['name']} {card['confidence']:.2f}"
-        draw.rectangle(draw.textbbox((x1, y1 - 11), label), fill="lime")
-        draw.text((x1, y1 - 11), label, fill="black")
+        position = (x1, max(0, y1 - font_size - 2))
+        draw.rectangle(draw.textbbox(position, label, font=font), fill="lime")
+        draw.text(position, label, fill="black", font=font)
     return image
 
 
@@ -128,10 +140,11 @@ def main():
     parser.add_argument("image")
     parser.add_argument("--weights", required=True)
     parser.add_argument("--conf", type=float, default=0.25, help="confiance minimale d'un coin")
+    parser.add_argument("--imgsz", type=int, default=IMAGE_SIZE, help="taille d'entrée du réseau")
     parser.add_argument("--out", default=None, help="image annotée (défaut : runs/predict/<nom>.jpg)")
     args = parser.parse_args()
 
-    scene = detect(YOLO(args.weights), args.image, args.conf)
+    scene = detect(YOLO(args.weights), args.image, args.conf, args.imgsz)
     print(json.dumps(scene, indent=2))
     out = Path(args.out or f"runs/predict/{Path(args.image).stem}.jpg")
     out.parent.mkdir(parents=True, exist_ok=True)

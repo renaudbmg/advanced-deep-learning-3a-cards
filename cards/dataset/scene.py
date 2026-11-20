@@ -8,36 +8,44 @@ qui reste visible sous les autres cartes : les annotations sont parfaites et gra
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 
 from ..deck import DECK
-
-# Zone du coin haut-gauche (rang + enseigne) dans les PNG d'origine, [x1, y1, x2, y2[ en pixels.
-# Mesurée sur les 52 cartes, qui ont toutes la même mise en page (250 × 364 px).
-# Le coin bas-droit est le même rectangle tourné de 180°.
-CARD_SIZE = (250, 364)
-CORNER_TOP_LEFT = (2, 2, 45, 93)
+from .decks import DECK_STYLES
 
 # Un coin compte comme visible si au moins 70 % de ses pixels ne sont pas cachés par une
 # autre carte. Chaque carte posée garde au moins un coin visible.
 MIN_CORNER_VISIBILITY = 0.7
 
 
-def load_card_images(cards_dir="data/cards"):
-    images = {}
-    for card in DECK:
-        path = Path(cards_dir) / card.filename
-        if not path.exists():
-            raise FileNotFoundError(f"{path} introuvable. Lance d'abord : python -m cards.dataset.assets")
-        images[card] = Image.open(path).convert("RGBA")
-    return images
+def with_white_card(ink):
+    """Dessine la carte blanche sous l'encre, pour les jeux dont le PNG n'a que l'encre."""
+    card = Image.new("RGBA", ink.size, (0, 0, 0, 0))
+    ImageDraw.Draw(card).rounded_rectangle([0, 0, ink.width - 1, ink.height - 1], radius=12, fill="white", outline=(60, 60, 60))
+    card.alpha_composite(ink)
+    return card
 
 
-def corner_mask(size):
+def load_decks(cards_dir="data/cards"):
+    """Liste de (style, {carte: image RGBA}), un élément par jeu de decks.py."""
+    decks = []
+    for style in DECK_STYLES:
+        images = {}
+        for card in DECK:
+            path = Path(cards_dir) / style.name / card.filename
+            if not path.exists():
+                raise FileNotFoundError(f"{path} introuvable. Lance d'abord : python -m cards.dataset.assets")
+            image = Image.open(path).convert("RGBA")
+            images[card] = with_white_card(image) if style.white_fill else image
+        decks.append((style, images))
+    return decks
+
+
+def corner_mask(size, style):
     """Masque de la taille de la carte : 0 ailleurs, 1 sur le coin haut-gauche, 2 sur le coin bas-droit."""
     w, h = size
-    sx, sy = w / CARD_SIZE[0], h / CARD_SIZE[1]  # au cas où les PNG auraient une autre taille
-    x1, y1, x2, y2 = (round(v * s) for v, s in zip(CORNER_TOP_LEFT, (sx, sy, sx, sy)))
+    sx, sy = w / style.card_size[0], h / style.card_size[1]  # au cas où les PNG auraient une autre taille
+    x1, y1, x2, y2 = (round(v * s) for v, s in zip(style.corner, (sx, sy, sx, sy)))
     mask = np.zeros((h, w), dtype=np.uint8)
     mask[y1:y2, x1:x2] = 1
     mask[h - y2 : h - y1, w - x2 : w - x1] = 2
@@ -107,12 +115,12 @@ def perspective(sprite, rng, strength, mask=None):
     return sprite, mask.transform((w, h), Image.PERSPECTIVE, coefficients, Image.NEAREST)
 
 
-def transform_card(sprite, rng, height, max_rotation, max_perspective, max_size):
+def transform_card(sprite, style, rng, height, max_rotation, max_perspective, max_size):
     """Perspective, taille, rotation. Le masque des coins suit chaque étape (en NEAREST, pour garder 0, 1, 2).
 
     Retourne la carte (RGBA) et son masque de coins, découpés au ras de la carte.
     """
-    mask = corner_mask(sprite.size)
+    mask = corner_mask(sprite.size, style)
     # Intensité tirée par carte : de quasiment à plat à nettement penchée
     sprite, mask = perspective(sprite, rng, rng.uniform(0, max_perspective), mask)
     bbox = sprite.getchannel("A").getbbox()
@@ -132,7 +140,7 @@ def transform_card(sprite, rng, height, max_rotation, max_perspective, max_size)
     return sprite, mask
 
 
-def place_cards(image, card_images, rng, n_cards, base_height, max_rotation, max_perspective, max_tries=50):
+def place_cards(image, deck, rng, n_cards, base_height, max_rotation, max_perspective, max_tries=50):
     """Colle des cartes au hasard ; elles peuvent se recouvrir.
 
     Une position est refusée si la nouvelle carte cacherait trop les deux coins d'une carte
@@ -141,13 +149,14 @@ def place_cards(image, card_images, rng, n_cards, base_height, max_rotation, max
     Retourne la liste des cartes et, pour chacune, ses deux coins :
     [{"box": [x1, y1, x2, y2], "visibility": part des pixels du coin visibles}, ...]
     """
+    style, card_images = deck
     size = image.width
     owner = np.full((size, size), -1, dtype=np.int16)  # indice de la carte visible en chaque pixel
     cards, corner_pixels, corner_boxes = [], [], []
     for index in rng.choice(len(DECK), size=n_cards, replace=False):
         card = DECK[index]
         height = round(base_height * rng.uniform(0.9, 1.1))  # ±10 % autour de la taille de l'image
-        sprite, mask = transform_card(card_images[card], rng, height, max_rotation, max_perspective, size)
+        sprite, mask = transform_card(card_images[card], style, rng, height, max_rotation, max_perspective, size)
         opaque = np.asarray(sprite.getchannel("A")) > 127
         mask = np.asarray(mask)
         k = len(cards)
@@ -204,14 +213,14 @@ MAX_CARD_HEIGHT = {0: 300, 1: 300, 2: 225, 3: 180, 4: 160, 5: 140}
 
 
 def make_scene(
-    card_images,
+    decks,
     rng,
     image_size=384,
     n_cards_probs=N_CARDS_PROBS,
     max_rotation=20,
     max_perspective=0.15,
 ):
-    """Retourne (image RGB, liste de cartes, liste des deux coins de chaque carte).
+    """Retourne (image RGB, liste de cartes, liste des deux coins de chaque carte, nom du jeu).
 
     Le nombre de cartes posées peut être inférieur au nombre visé : une carte qui ne
     trouve pas de place acceptable est abandonnée.
@@ -220,5 +229,6 @@ def make_scene(
     n = int(rng.choice(len(n_cards_probs), p=n_cards_probs))
     scale = image_size / 384  # les hauteurs sont données pour 384 px
     base_height = rng.uniform(MIN_CARD_HEIGHT, MAX_CARD_HEIGHT[n]) * scale
-    cards, corners = place_cards(image, card_images, rng, n, base_height, max_rotation, max_perspective)
-    return augment(image, rng), cards, corners
+    deck = decks[int(rng.integers(len(decks)))]
+    cards, corners = place_cards(image, deck, rng, n, base_height, max_rotation, max_perspective)
+    return augment(image, rng), cards, corners, deck[0].name

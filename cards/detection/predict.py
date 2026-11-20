@@ -20,23 +20,25 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from ..dataset.scene import CARD_SIZE, CORNER_TOP_LEFT
+from ..dataset.decks import DECK_STYLES
 from ..deck import DECK
 
 IMAGE_SIZE = 384
 
 
-def corner_distance_ratio():
-    """Distance entre les centres des deux coins d'une carte, en hauteurs de coin (environ 3,7)."""
-    x1, y1, x2, y2 = CORNER_TOP_LEFT
-    width, height = CARD_SIZE
+def corner_distance_ratio(style):
+    """Distance entre les centres des deux coins d'une carte, en longueurs de coin (3,6 à 4,8 selon le jeu)."""
+    x1, y1, x2, y2 = style.corner
+    width, height = style.card_size
     # Centre du coin haut-gauche : ((x1 + x2) / 2, (y1 + y2) / 2) ; le coin bas-droit est son symétrique
-    return math.hypot(width - (x1 + x2), height - (y1 + y2)) / (y2 - y1)
+    return math.hypot(width - (x1 + x2), height - (y1 + y2)) / max(x2 - x1, y2 - y1)
 
 
 # Deux coins de même classe sont la même carte si leur distance tombe dans cet intervalle,
-# en hauteurs de coin. La marge couvre la perspective, la rotation et l'imprécision des boîtes.
-PAIR_DISTANCE = (0.7 * corner_distance_ratio(), 1.35 * corner_distance_ratio())
+# en longueurs de coin. L'intervalle couvre tous les jeux ; la marge couvre la perspective,
+# la rotation et l'imprécision des boîtes.
+RATIOS = [corner_distance_ratio(style) for style in DECK_STYLES]
+PAIR_DISTANCE = (0.7 * min(RATIOS), 1.35 * max(RATIOS))
 
 
 def center(box):
@@ -46,8 +48,9 @@ def center(box):
 def compatible(a, b):
     """Les deux détections peuvent-elles être les deux coins d'une même carte ?"""
     (ax, ay), (bx, by) = center(a["box"]), center(b["box"])
-    corner_height = ((a["box"][3] - a["box"][1]) + (b["box"][3] - b["box"][1])) / 2
-    distance = math.hypot(ax - bx, ay - by) / corner_height
+    # Le grand côté de la boîte : la longueur du coin, quelle que soit la rotation de la carte
+    corner_length = (max(a["box"][2] - a["box"][0], a["box"][3] - a["box"][1]) + max(b["box"][2] - b["box"][0], b["box"][3] - b["box"][1])) / 2
+    distance = math.hypot(ax - bx, ay - by) / corner_length
     return PAIR_DISTANCE[0] <= distance <= PAIR_DISTANCE[1]
 
 

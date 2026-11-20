@@ -1,7 +1,7 @@
-"""Télécharge les images des 52 cartes.
+"""Télécharge les images des 52 cartes de chaque jeu (voir decks.py).
 
-Source : Wikimedia Commons, catégorie « Playing cards set by Byron Knoll ».
-Wikimedia fournit une version PNG des fichiers SVG, il n'y a donc rien à convertir.
+Source : Wikimedia Commons. Wikimedia fournit une version PNG des fichiers SVG, il n'y a donc rien à convertir.
+Chaque jeu va dans son dossier : data/cards/<jeu>/.
 
 Usage : python -m cards.dataset.assets
 """
@@ -14,22 +14,24 @@ import urllib.request
 from pathlib import Path
 
 from ..deck import DECK
+from .decks import DECK_STYLES
 
 API_URL = "https://commons.wikimedia.org/w/api.php"
 USER_AGENT = "advanced-deep-learning-3a/0.1 (student project, playing card grounding)"
 WIDTH = 250  # largeur des PNG téléchargés, en pixels
 
 
-def commons_title(card):
-    rank = card.rank if card.rank.isdigit() else card.rank.capitalize()
-    variant = "2" if card.is_face else ""  # "King of hearts2.svg" : la version illustrée des figures
-    return f"File:{rank} of {card.suit}{variant}.svg"
-
-
-def http_get(url):
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return response.read()
+def http_get(url, tries=5):
+    """GET avec quelques essais : Wikimedia renvoie parfois 429 (trop de requêtes)."""
+    for attempt in range(tries):
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return response.read()
+        except OSError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(5 * (attempt + 1))
 
 
 def thumbnail_urls(titles):
@@ -52,7 +54,7 @@ def thumbnail_urls(titles):
     return urls
 
 
-def download_cards(out_dir):
+def download_cards(out_dir, style):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     missing = [card for card in DECK if not (out_dir / card.filename).exists()]
@@ -60,7 +62,7 @@ def download_cards(out_dir):
         print(f"Les 52 cartes sont déjà dans {out_dir}/")
         return
 
-    titles = [commons_title(card) for card in missing]
+    titles = [style.title(card) for card in missing]
     urls = {}
     for start in range(0, len(titles), 50):  # l'API accepte 50 titres par requête
         urls.update(thumbnail_urls(titles[start : start + 50]))
@@ -77,7 +79,10 @@ def download_cards(out_dir):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", default="data/cards")
-    download_cards(parser.parse_args().out_dir)
+    out_dir = Path(parser.parse_args().out_dir)
+    for style in DECK_STYLES:
+        print(f"Jeu {style.name} ({style.license})")
+        download_cards(out_dir / style.name, style)
 
 
 if __name__ == "__main__":

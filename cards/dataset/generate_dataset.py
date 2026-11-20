@@ -17,22 +17,23 @@ from pathlib import Path
 import numpy as np
 
 from ..deck import DECK
-from .scene import MIN_CORNER_VISIBILITY, load_card_images, make_scene
+from .scene import MIN_CORNER_VISIBILITY, load_decks, make_scene
 
 IMAGE_SIZE = 384
 
 
-def generate_split(out_dir, n_images, card_images, seed):
+def generate_split(out_dir, n_images, decks, seed):
     rng = np.random.default_rng(seed)  # seed fixe par split : le dataset est reproductible
     (out_dir / "images").mkdir(parents=True, exist_ok=True)
     (out_dir / "labels").mkdir(parents=True, exist_ok=True)
     items = []
     for i in range(n_images):
-        image, cards, corners = make_scene(card_images, rng, IMAGE_SIZE)
+        image, cards, corners, deck_name = make_scene(decks, rng, IMAGE_SIZE)
         image_path = f"images/{i:06d}.jpg"
         image.save(out_dir / image_path, quality=92)
         item = {
             "image": image_path,
+            "deck": deck_name,
             "cards": [
                 {
                     "name": card.name,
@@ -92,10 +93,10 @@ def main():
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
-    card_images = load_card_images(args.cards_dir)
+    decks = load_decks(args.cards_dir)
     for offset, (split, n_images) in enumerate([("train", args.n_train), ("val", args.n_val), ("test", args.n_test)]):
         print(f"Génération de {split}...")
-        generate_split(out_dir / split, n_images, card_images, args.seed + offset)
+        generate_split(out_dir / split, n_images, decks, args.seed + offset)
     write_data_yaml(out_dir)
 
 

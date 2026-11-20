@@ -14,8 +14,8 @@ python -m cards.detection.evaluate --weights runs/detect/yolov8s/weights/best.pt
 
 | Commande | Options principales |
 |---|---|
-| `train` | `--model` (défaut `yolov8s.pt`), `--epochs` (50), `--batch` (32), `--device` (`mps`), `--data`, `--name` |
-| `predict` | `--weights`, `--conf` (0,25), `--out` (défaut `runs/predict/<nom>.jpg`) |
+| `train` | `--model` (défaut `yolov8s.pt`), `--epochs` (50), `--patience` (10), `--batch` (32), `--device` (`mps`), `--data`, `--name` |
+| `predict` | `--weights`, `--conf` (0,25), `--imgsz` (384), `--out` (défaut `runs/predict/<nom>.jpg`) |
 | `evaluate` | `--weights`, `--split-dir` (défaut `data/synthetic/test`), `--conf`, `--map` (ajoute la mAP par coin) |
 
 ## Entraîner sur Colab
@@ -35,6 +35,8 @@ Une fois `best.pt` récupéré, l'évaluation se fait en local avec `evaluate`.
 | [train.py](train.py) | Fine-tuning avec Ultralytics. Les poids sont écrits dans `runs/detect/<nom>/weights/best.pt`. |
 | [predict.py](predict.py) | `detect(model, image)` → scène, `group_corners(detections)` → cartes, `draw_scene(image, scene)` → image annotée. |
 | [evaluate.py](evaluate.py) | Métriques par carte sur un split du dataset, et mAP par coin. |
+| [real_dataset.py](real_dataset.py) | Télécharge les vraies photos de test et convertit leurs étiquettes. |
+| [evaluate_real.py](evaluate_real.py) | Métriques sur les vraies photos, et images annotées des erreurs. |
 
 ## Format de la scène
 
@@ -74,7 +76,7 @@ C'est du **Python pur**, sans paramètre appris : un post-traitement, comme la N
 | Règle de base | **Un `class_id` = une carte** | Une carte apparaît au plus une fois par image : deux coins de même classe sont la même carte. |
 | Deux classes prédites sur le même coin (6 ou 9, cœur ou carreau) | NMS **agnostique** (`agnostic_nms=True`) : seule la plus confiante reste | Les deux coins d'une même carte ne se recouvrent pas : ils ne s'éliminent pas l'un l'autre. |
 | Plus de deux coins d'une même classe, ou deux coins trop loin l'un de l'autre | On garde la paire de coins **compatibles** la plus confiante. S'il n'y en a pas, on garde le coin le plus confiant. Les autres sont écartés. | Un coin en trop vient d'une erreur de classe sur une autre carte. Deux coins à la bonne distance sont un indice plus fort qu'une confiance isolée. |
-| Coins compatibles | Distance entre leurs centres comprise entre 2,6 et 5,0 hauteurs de coin (`PAIR_DISTANCE`) | Sur le PNG, les coins sont à 3,7 hauteurs de coin (calculé à partir de `CORNER_TOP_LEFT`). Sur le dataset, les vraies paires vont de 2,9 à 3,9 : la marge couvre la perspective, la rotation et l'imprécision des boîtes prédites. |
+| Coins compatibles | Distance entre leurs centres comprise entre 2,5 et 6,5 longueurs de coin (`PAIR_DISTANCE`) ; la longueur d'un coin est le grand côté de sa boîte | Selon le jeu, les coins sont à 3,6 à 4,8 longueurs de coin (calculé à partir de `DeckStyle.corner`). Le grand côté de la boîte ne dépend pas de la rotation : avec la hauteur, une carte couchée à 90° aurait vu ses deux coins séparés. Vérifié sur le dataset : toutes les vraies paires de coins sont appariées. |
 | Les deux coins d'une même carte reçoivent deux classes différentes | **Non corrigé** : on obtient deux cartes au lieu d'une | Le cas est mesuré par l'évaluation (« cartes en double »). S'il est fréquent, on pourra regrouper les coins par géométrie, quelle que soit leur classe. |
 
 ### L'évaluation ([evaluate.py](evaluate.py))
@@ -88,11 +90,74 @@ C'est du **Python pur**, sans paramètre appris : un post-traitement, comme la N
 
 Contrôle effectué : avec la vérité terrain en entrée, l'évaluation donne une précision, un rappel et une part d'images exactes de 1.
 
+## Évaluation sur photos réelles
+
+Le split test synthétique vient du même générateur que l'entraînement : mêmes 52 images de cartes, mêmes fonds simples. Il mesure si la tâche est apprise, pas si le modèle tient sur de vraies photos. On ajoute donc un test **hors distribution** : le modèle n'est entraîné que sur le synthétique, et testé sur de vraies photos qui ne servent jamais à l'entraîner.
+
+```bash
+python -m cards.detection.real_dataset --split test          # 193 photos, pour le chiffre final
+python -m cards.detection.real_dataset --split validation    # 128 photos, pour régler --conf et --imgsz
+python -m cards.detection.evaluate_real --weights checkpoints/yolov8s_ft35.pt --data-dir data/real/poker-cards/validation
+python -m cards.detection.evaluate_real --weights checkpoints/yolov8s_ft35.pt
+```
+
+Les images des photos avec une erreur (prédictions en vert et jaune, vraies boîtes en bleu, cartes manquées et fantômes écrites en rouge) et le détail par photo (`results.json`) sont écrits dans `runs/real_eval/<poids>/<split>_<imgsz>/`.
+
+### Le dataset
+
+[Francesco/poker-cards-cxcvz](https://huggingface.co/datasets/Francesco/poker-cards-cxcvz) sur Hugging Face, issu de Roboflow 100 : de vraies photos 640×640, 4 à 5 cartes par photo, posées sur des tissus, des canapés, des tables. Licence CC BY 4.0 d'après les miroirs du dataset (le dépôt indique seulement « cc ») : à citer, et à vérifier sur la page Roboflow d'origine.
+
+| Décision | Pourquoi |
+|---|---|
+| Split `test` pour le chiffre final, `validation` pour les réglages, `train` jamais utilisé | Le test reste un juge neutre : aucun choix n'est fait en le regardant. |
+| Comparaison par les **noms** des cartes, pas par les boîtes | Leurs boîtes couvrent la carte entière, les nôtres couvrent les coins : une IoU entre les deux serait basse même pour une détection parfaite. |
+| **Correction des numéros de classe** (`true_category_name()` dans [real_dataset.py](real_dataset.py)) | Dans le fichier COCO d'origine, la liste de noms est décalée pour les classes 1 à 21 : la classe « 59 » est le 10 de cœur, « 10 Diamonds » est le 10 de pique, etc. Le décalage a été repéré en dessinant les étiquettes sur les photos, puis vérifié classe par classe en recadrant les boîtes. Après correction, les 52 cartes sont présentes dans chaque split, et aucun objet n'est écarté. |
+
+### Les métriques
+
+| Métrique | Définition |
+|---|---|
+| Précision, rappel par carte | Une carte prédite est juste si la photo contient une carte de même nom. |
+| Cartes fantômes, manquées | Cartes prédites absentes de la photo ; cartes de la photo non trouvées. |
+| Images exactes | Part des photos où l'ensemble des cartes prédites est exactement l'ensemble attendu. |
+| Cartes bien localisées | Parmi les cartes bien identifiées, part de celles dont un coin détecté a son centre dans la vraie boîte de la carte. |
+| Relations spatiales | Pour chaque paire de cartes bien identifiées, « à gauche de » et « au-dessus de » sont-ils les mêmes entre les centres prédits et les vrais centres ? Les paires presque alignées (écart réel de moins d'un quart de la taille moyenne des deux cartes) ne sont pas comptées. C'est ce dont le LLM aura besoin. |
+| IoU des cartes à deux coins (indicatif) | Quand les deux coins sont détectés, leur union recouvre à peu près la carte : IoU avec la vraie boîte. Approximatif pour les cartes inclinées. |
+
+Contrôle effectué : avec la vérité en entrée, toutes les métriques valent 1 ; en retirant une carte et en ajoutant une fantôme, les compteurs sont exactement ceux attendus.
+
+### Réglages choisis sur validation
+
+| Réglage | Images exactes sur validation | Choix |
+|---|---|---|
+| `--imgsz 384` / `640` | 0,125 / 0,117 (rappel 0,551 / 0,564) | **384**, la taille de l'entraînement : l'écart est dans le bruit pour 128 photos. |
+| `--conf 0,1` / `0,25` / `0,5` | 0,102 / 0,125 / 0,109 | **0,25** : en dessous, trop de fantômes ; au-dessus, trop de cartes manquées. |
+
 ## Résultats
 
-À compléter après l'entraînement complet :
+Modèle `yolov8s` fine-tuné 35 epochs sur Colab (`checkpoints/yolov8s_ft35.pt`), `--conf 0,25`, `--imgsz 384`.
 
-| Modèle | mAP50 coins | Précision cartes | Rappel cartes | Cartes en double | Images exactes |
-|---|---|---|---|---|---|
-| yolov8n | | | | | |
-| yolov8s | | | | | |
+| Métrique | Test synthétique (2 000 images) | Test réel (193 photos) |
+|---|---|---|
+| mAP50 / mAP50-95 par coin | 0,995 / 0,909 | non mesurable (pas de boîtes de coin) |
+| Précision par carte | 1,000 | **0,815** |
+| Rappel par carte | 0,999 | **0,557** |
+| Cartes fantômes | 0 | 106 |
+| Images exactes | 0,999 | **0,114** |
+| Cartes bien localisées | | 0,949 |
+| Relations gauche/droite, haut/bas | | 0,952 / 0,961 |
+| IoU des cartes à deux coins (moyenne, part ≥ 0,5) | | 0,597 ; 0,729 |
+
+**Lecture :**
+- **L'écart entre synthétique et réel est grand.** Sur le synthétique, la tâche est résolue ; sur de vraies photos, le modèle ne trouve que 56 % des cartes, et seule une photo sur neuf est entièrement juste.
+- **Quand une carte est trouvée, elle est bien placée** : 95 % des coins sont sur la bonne carte, et les relations gauche/droite et haut/bas sont justes à 95-96 %. Le problème est surtout la **reconnaissance**, pas la position.
+- Le rappel varie selon le rang : 0,30 pour les 5, 0,44 à 0,47 pour les 3, 4 et 10, jusqu'à 0,77 pour les 6.
+- Une confusion visible sur les images d'erreurs : le coin d'un **6 vu à l'envers est lu comme un 9**.
+- Causes probables, à vérifier : le jeu des photos n'a pas la même police ni la même mise en page que le jeu de Byron Knoll du générateur, les cartes sont plus inclinées que les ±20° du générateur, et les fonds sont texturés. Une vraie photo d'une quinte flush à pique ne donnait que 3 cartes sur 5, et les 5 une fois l'image redressée de 30°.
+
+Ces résultats ont conduit à une **version 2 du générateur** : 4 jeux de cartes, rotations à 360°, fonds texturés, leurres, éclairage et compression (détail dans le [README du dataset](../dataset/README.md#pourquoi-le-générateur-a-été-durci-version-2)). Le modèle est à réentraîner sur cette version avec le [notebook Colab](colab_training.ipynb), qui donne aussi les chiffres sur les vraies photos. Résultats à ajouter ici :
+
+| Générateur | Rappel réel (test) | Précision réelle (test) | Images exactes réelles (test) |
+|---|---|---|---|
+| Version 1 (`yolov8s_ft35.pt`) | 0,557 | 0,815 | 0,114 |
+| Version 2 | | | |

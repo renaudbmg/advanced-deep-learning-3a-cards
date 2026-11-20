@@ -34,9 +34,10 @@ Les dossiers `data/` (cartes téléchargées, dataset généré) et `runs/` (ent
 Depuis la racine du repo :
 
 ```bash
-python -m cards.dataset.assets                    # télécharge les 52 cartes dans data/cards/
+python -m cards.dataset.assets                    # télécharge les 4 jeux de 52 cartes dans data/cards/
 python -m cards.dataset.generate_dataset          # génère le dataset dans data/synthetic/
 python -m cards.detection.train                   # fine-tune YOLO, poids dans runs/detect/
+python -m cards.detection.real_dataset            # télécharge les vraies photos de test dans data/real/
 ```
 
 

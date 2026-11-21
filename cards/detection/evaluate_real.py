@@ -1,8 +1,8 @@
 """Évalue le détecteur sur de vraies photos (test hors distribution : entraînement uniquement synthétique).
 
 Usage, après python -m cards.detection.real_dataset :
-    python -m cards.detection.evaluate_real --weights checkpoints/yolov8s_ft35.pt --data-dir data/real/poker-cards/validation
-    python -m cards.detection.evaluate_real --weights checkpoints/yolov8s_ft35.pt   # test, pour le chiffre final
+    python -m cards.detection.evaluate_real --weights checkpoints/cards_yolov8s.pt --data-dir data/real/poker-cards/validation
+    python -m cards.detection.evaluate_real --weights checkpoints/cards_yolov8s.pt   # test, pour le chiffre final
 
 Les réglages (--conf, --imgsz) se choisissent sur validation ; test ne sert qu'au chiffre final.
 

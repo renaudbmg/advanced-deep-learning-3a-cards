@@ -4,8 +4,7 @@ On annote les deux coins imprimés de chaque carte (rang + enseigne), pas la car
 Comme c'est nous qui posons les cartes, on connaît la boîte exacte de chaque coin et la part
 qui reste visible sous les autres cartes : les annotations sont parfaites et gratuites.
 
-Les variations (designs, rotations, fonds, éclairage) imitent les écarts observés sur de vraies
-photos, où un modèle entraîné sur une version plus simple du générateur ne trouvait qu'une carte sur deux.
+Les variations (designs, rotations, fonds, éclairage) imitent ce qu'on voit sur de vraies photos.
 """
 
 import io
@@ -352,7 +351,7 @@ def visibility(owner, pixels, card_index):
 
 
 # Probabilité de chaque nombre de cartes visé : 0, 1, 2, 3, 4, 5, 6.
-# Les vraies photos de test ont 4 à 5 cartes : on en met davantage qu'au début.
+# Les vraies photos de test ont 4 à 5 cartes : on en met souvent 3 à 5.
 N_CARDS_PROBS = (0.04, 0.12, 0.16, 0.20, 0.20, 0.16, 0.12)
 
 # Hauteur des cartes, en pixels, pour une image de 384 px. On tire une hauteur par image,

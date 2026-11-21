@@ -60,7 +60,7 @@ Une fois `best.pt` récupéré, l'évaluation se fait en local avec `evaluate`.
 
 | Décision | Valeur | Pourquoi |
 |---|---|---|
-| Modèle | `yolov8s`, pré-entraîné sur COCO, avec Ultralytics | La tâche est simple (images synthétiques, un seul design de cartes) : pas besoin d'un gros modèle. Les tailles n et s s'entraînent sur un portable. Ultralytics lit directement le dossier du dataset (`data/synthetic/data.yaml`). Voir [docs/useful_links.md](../../docs/useful_links.md) (revue YOLO v1-v8). |
+| Modèle | `yolov8s`, pré-entraîné sur COCO, avec Ultralytics | La tâche est simple (images synthétiques, 52 classes) : pas besoin d'un gros modèle. Les tailles n et s s'entraînent sur un portable. Ultralytics lit directement le dossier du dataset (`data/synthetic/data.yaml`). Voir [docs/useful_links.md](../../docs/useful_links.md) (revue YOLO v1-v8). |
 | Classes | 52, une par carte (`class_id` de [../deck.py](../deck.py)) | YOLO reconnaît la carte en même temps qu'il la localise. |
 | Objet détecté | Un **coin visible** | Voir le README du dataset : le coin reste visible quand les cartes se recouvrent, et contient le rang et l'enseigne. |
 | Taille d'entrée | 384 px | La taille des images du dataset. La tête la plus fine de YOLOv8 travaille au stride 8 (48×48 cases), ce qui suffit pour des coins d'environ 10×19 px. |
@@ -92,13 +92,13 @@ Contrôle effectué : avec la vérité terrain en entrée, l'évaluation donne u
 
 ## Évaluation sur photos réelles
 
-Le split test synthétique vient du même générateur que l'entraînement : mêmes 52 images de cartes, mêmes fonds simples. Il mesure si la tâche est apprise, pas si le modèle tient sur de vraies photos. On ajoute donc un test **hors distribution** : le modèle n'est entraîné que sur le synthétique, et testé sur de vraies photos qui ne servent jamais à l'entraîner.
+Le split test synthétique vient du même générateur que l'entraînement : mêmes 4 jeux de cartes, mêmes types de fonds. Il mesure si la tâche est apprise, pas si le modèle tient sur de vraies photos. On ajoute donc un test **hors distribution** : le modèle n'est entraîné que sur le synthétique, et testé sur de vraies photos qui ne servent jamais à l'entraîner.
 
 ```bash
 python -m cards.detection.real_dataset --split test          # 193 photos, pour le chiffre final
 python -m cards.detection.real_dataset --split validation    # 128 photos, pour régler --conf et --imgsz
-python -m cards.detection.evaluate_real --weights checkpoints/yolov8s_ft35.pt --data-dir data/real/poker-cards/validation
-python -m cards.detection.evaluate_real --weights checkpoints/yolov8s_ft35.pt
+python -m cards.detection.evaluate_real --weights checkpoints/cards_yolov8s.pt --data-dir data/real/poker-cards/validation
+python -m cards.detection.evaluate_real --weights checkpoints/cards_yolov8s.pt
 ```
 
 Les images des photos avec une erreur (prédictions en vert et jaune, vraies boîtes en bleu, cartes manquées et fantômes écrites en rouge) et le détail par photo (`results.json`) sont écrits dans `runs/real_eval/<poids>/<split>_<imgsz>/`.
@@ -128,40 +128,7 @@ Contrôle effectué : avec la vérité en entrée, toutes les métriques valent 
 
 ### Réglages choisis sur validation
 
-| Réglage | Images exactes sur validation | Choix |
-|---|---|---|
-| `--imgsz 384` / `640` | 0,125 / 0,117 (rappel 0,551 / 0,564) | **384**, la taille de l'entraînement : l'écart est dans le bruit pour 128 photos. |
-| `--conf 0,1` / `0,25` / `0,5` | 0,102 / 0,125 / 0,109 | **0,25** : en dessous, trop de fantômes ; au-dessus, trop de cartes manquées. |
-
-## Résultats
-
-Modèle `yolov8s` fine-tuné 35 epochs sur Colab (`checkpoints/yolov8s_ft35.pt`), `--conf 0,25`, `--imgsz 384`.
-
-| Métrique | Test synthétique (2 000 images) | Test réel (193 photos) |
-|---|---|---|
-| mAP50 / mAP50-95 par coin | 0,995 / 0,909 | non mesurable (pas de boîtes de coin) |
-| Précision par carte | 1,000 | **0,815** |
-| Rappel par carte | 0,999 | **0,557** |
-| Cartes fantômes | 0 | 106 |
-| Images exactes | 0,999 | **0,114** |
-| Cartes bien localisées | | 0,949 |
-| Relations gauche/droite, haut/bas | | 0,952 / 0,961 |
-| IoU des cartes à deux coins (moyenne, part ≥ 0,5) | | 0,597 ; 0,729 |
-
-**Lecture :**
-- **L'écart entre synthétique et réel est grand.** Sur le synthétique, la tâche est résolue ; sur de vraies photos, le modèle ne trouve que 56 % des cartes, et seule une photo sur neuf est entièrement juste.
-- **Quand une carte est trouvée, elle est bien placée** : 95 % des coins sont sur la bonne carte, et les relations gauche/droite et haut/bas sont justes à 95-96 %. Le problème est surtout la **reconnaissance**, pas la position.
-- Le rappel varie selon le rang : 0,30 pour les 5, 0,44 à 0,47 pour les 3, 4 et 10, jusqu'à 0,77 pour les 6.
-- Une confusion visible sur les images d'erreurs : le coin d'un **6 vu à l'envers est lu comme un 9**.
-- Causes probables, à vérifier : le jeu des photos n'a pas la même police ni la même mise en page que le jeu de Byron Knoll du générateur, les cartes sont plus inclinées que les ±20° du générateur, et les fonds sont texturés. Une vraie photo d'une quinte flush à pique ne donnait que 3 cartes sur 5, et les 5 une fois l'image redressée de 30°.
-
-Ces résultats ont conduit à une **version 2 du générateur** : 4 jeux de cartes, rotations à 360°, fonds texturés, leurres, éclairage et compression (détail dans le [README du dataset](../dataset/README.md#pourquoi-le-générateur-a-été-durci-version-2)).
-
-### Version 2 du générateur
-
-Modèle `yolov8s` fine-tuné sur la version 2 avec le [notebook Colab](colab_training.ipynb). L'entraînement a été coupé par la limite de GPU de Colab après **29 epochs sur 50** : on garde les poids de l'epoch 29 (la meilleure du CSV, `mAP50-95` de validation synthétique de 0,8685, qui montait encore de 0,001 par epoch). Les poids sont sur Google Drive (`adl3a_runs/yolov8s_checkpoints/best.pt`) et en local dans `checkpoints/yolov8s_v2_ep29_best.pt`, hors git.
-
-**Réglage du seuil de confiance, sur le split `validation` réel** (128 photos, `--imgsz 384`) :
+`--conf` et `--imgsz` se choisissent sur le split `validation` réel (128 photos), en maximisant les images exactes :
 
 | `--conf` | Précision | Rappel | Fantômes | Manquées | Images exactes |
 |---|---|---|---|---|---|
@@ -171,24 +138,29 @@ Modèle `yolov8s` fine-tuné sur la version 2 avec le [notebook Colab](colab_tra
 | 0,70 | 0,953 | 0,946 | 26 | 30 | 0,664 |
 | **0,80** | **0,986** | 0,903 | 7 | 54 | **0,688** |
 
-`--imgsz 640` n'améliore rien (0,492 images exactes à `conf 0,25`, 0,648 à 0,7, 0,641 à 0,8) : on garde 384. Les fausses cartes ont une confiance basse, donc un seuil plus haut les enlève presque toutes au prix de quelques cartes manquées. Entre 0,70 et 0,80, l'écart est de 3 images sur 128, dans le bruit ; on retient **0,80**, qui maximise les images exactes (le critère fixé d'avance).
+(`--imgsz 384`.) `--imgsz 640` n'améliore rien (0,492 images exactes à `conf 0,25`, 0,648 à 0,7, 0,641 à 0,8) : on garde **384**, la taille de l'entraînement. Les fausses cartes ont une confiance basse, donc un seuil plus haut les enlève presque toutes au prix de quelques cartes manquées. Entre 0,70 et 0,80, l'écart est de 3 images sur 128, dans le bruit ; on retient **0,80**, qui maximise les images exactes (le critère fixé d'avance).
 
-**Résultats finaux, `--conf 0,8` et `--imgsz 384` pour toutes les colonnes** (le test réel n'a été lancé qu'une fois, après ces réglages) :
+## Résultats
 
-| Métrique | v1 : test synthétique v1 | v1 : test réel | v2 : test synthétique v2 | v2 : test réel |
-|---|---|---|---|---|
-| Précision par carte | 1,000 | 0,815 | 1,000 | **0,988** |
-| Rappel par carte | 0,999 | 0,557 | 0,971 | **0,871** |
-| Cartes fantômes | 0 | 106 | 1 | 9 |
-| Images exactes | 0,999 | 0,114 | 0,915 | **0,622** |
-| mAP50 / mAP50-95 par coin | 0,995 / 0,909 | non mesurable | 0,994 / 0,866 | non mesurable |
-| Cartes bien localisées | | 0,949 | | 1,000 |
-| Relations gauche/droite, haut/bas | | 0,952 / 0,961 | | 0,991 / 0,986 |
-| IoU des cartes à deux coins (moyenne, part ≥ 0,5) | | 0,597 ; 0,729 | | 0,517 ; 0,572 |
+Modèle `yolov8s` fine-tuné avec le [notebook Colab](colab_training.ipynb). L'entraînement a été coupé par la limite de GPU de Colab après **29 epochs sur 50** : on garde les poids de l'epoch 29 (la meilleure du CSV, `mAP50-95` de validation synthétique de 0,8685, qui montait encore de 0,001 par epoch). Les poids sont sur Google Drive (`adl3a_runs/yolov8s_checkpoints/best.pt`) et en local dans `checkpoints/cards_yolov8s.pt`, hors git.
 
-Les colonnes v1 sont celles du tableau précédent, mesurées à `conf 0,25` ; les colonnes v2 à `conf 0,8`. À `conf 0,25`, le v2 donne sur la validation réelle 0,832 de précision, 0,975 de rappel et 0,438 d'images exactes (voir le tableau de réglage ci-dessus). Le test synthétique v2 est régénéré en local avec la même graine qu'à l'entraînement (`--n-test 2000`, seed fixe par split).
+`--conf 0,8` et `--imgsz 384`. Le test réel n'a été lancé qu'une fois, après les réglages ci-dessus.
+
+| Métrique | Test synthétique (2 000 images) | Test réel (193 photos) |
+|---|---|---|
+| Précision par carte | 1,000 | **0,988** |
+| Rappel par carte | 0,971 | **0,871** |
+| Cartes fantômes | 1 | 9 |
+| Images exactes | 0,915 | **0,622** |
+| mAP50 / mAP50-95 par coin | 0,994 / 0,866 | non mesurable (pas de boîtes de coin) |
+| Cartes bien localisées | | 1,000 |
+| Relations gauche/droite, haut/bas | | 0,991 / 0,986 |
+| IoU des cartes à deux coins (moyenne, part ≥ 0,5) | | 0,517 ; 0,572 |
+
+Le test synthétique se régénère en local avec la même graine qu'à l'entraînement (`python -m cards.dataset.generate_dataset`, seed fixe par split).
 
 **Lecture :**
-- **Le gain sur de vraies photos est très net** : les images exactes passent de 11 % à 62 %, le rappel de 0,56 à 0,87 et la précision de 0,82 à 0,99. Le modèle ne se trompe presque plus de carte (9 fausses cartes sur 739 annoncées) ; ce qui reste, ce sont des cartes manquées (108 sur 838), surtout des 5 et des 6 (rappel de 0,74 et 0,79 sur validation, au moins 0,86 pour les autres rangs).
+- **Sur de vraies photos, 62 % des images sont entièrement justes.** Le modèle ne se trompe presque plus de carte (9 fausses cartes sur 739 annoncées) ; ce qui reste, ce sont des cartes manquées (108 sur 838), surtout des 5 et des 6 (rappel de 0,74 et 0,79 sur validation, au moins 0,86 pour les autres rangs).
 - **La position est quasi parfaite** : 100 % des cartes trouvées sont bien placées, et l'ordre gauche/droite et haut/bas est juste à 99 %. C'est ce dont le LLM aura besoin.
-- **La tâche synthétique est plus difficile que celle du v1** (0,915 d'images exactes contre 0,999), comme prévu : les images contiennent des fonds texturés, des rotations à 360° et plus de cartes.
+- **L'écart entre synthétique (0,915) et réel (0,622) en images exactes** vient surtout du seuil de confiance et des cartes manquées : les photos réelles ont des polices, des éclairages et des fonds que le générateur imite sans les reproduire exactement.
+- **Limites** : l'entraînement est incomplet (29 epochs) ; on ne sait pas lequel des choix du générateur compte le plus, car aucun n'a été testé seul ; et le test réel est un seul dataset de 193 photos, de cartes posées à plat, plus faciles que des cartes en éventail ou tenues en main. Le résultat sur la webcam de la démo reste à mesurer.

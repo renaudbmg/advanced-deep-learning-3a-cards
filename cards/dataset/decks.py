@@ -1,8 +1,7 @@
 """Les jeux de cartes (designs) utilisés pour générer le dataset.
 
-Un seul design rendait la tâche trop facile : le modèle apprenait une police et une mise en page,
-et ne reconnaissait qu'une carte sur deux sur de vraies photos. Plusieurs designs libres de droits
-l'obligent à apprendre ce qui est commun à tous les jeux : le rang et l'enseigne dans le coin.
+Plusieurs designs libres de droits obligent le modèle à apprendre ce qui est commun à tous les jeux (le rang
+et l'enseigne dans le coin), pas une police ou une mise en page particulière.
 
 Tous viennent de Wikimedia Commons, en PNG de 250 px de large.
 """

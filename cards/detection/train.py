@@ -105,7 +105,7 @@ def main():
         batch=args.batch,
         device=args.device,
         fliplr=0.0,  # une carte vue en miroir n'existe pas : pas de retournement horizontal
-        patience=args.patience,  # le premier entraînement plafonnait vers l'epoch 25 : inutile d'aller au bout
+        patience=args.patience,  # arrêt anticipé : la validation plafonne avant la fin, inutile d'aller au bout
         project=str(project),
         name=name,
     )

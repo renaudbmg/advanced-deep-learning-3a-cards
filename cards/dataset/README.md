@@ -92,21 +92,21 @@ Comme le dataset Kaggle utilisé par [TeogopK/Playing-Cards-Object-Detection](ht
 | Les boîtes restent serrées malgré la rotation | Une boîte droite autour d'une carte tournée de 20° contient beaucoup de fond ; autour d'un petit coin, très peu. |
 | Deux coins par carte | Si un coin est caché, l'autre suffit à trouver la carte. |
 
-Le prix à payer : les coins sont de petits objets. C'est pourquoi l'image passe à 384 px et la hauteur minimale des cartes à 75 px (voir plus bas).
+Le prix à payer : les coins sont de petits objets. C'est pourquoi les images font 384 px et la hauteur minimale des cartes est de 75 px (voir plus bas).
 
-### Pourquoi le générateur a été durci (version 2)
+### Pourquoi ces variations
 
-Une première version (un seul jeu de cartes, rotations de ±20°, fonds unis ou dégradés) donnait un modèle presque parfait sur son propre split test (99,9 % d'images exactes), mais **seulement 56 % des cartes trouvées et 11 % d'images exactes sur de vraies photos** (voir le [README de la détection](../detection/README.md)). Les erreurs observées guident chaque changement de cette version :
+Un détecteur entraîné sur des images trop propres ne tient pas sur de vraies photos. Chaque choix du générateur répond à une différence entre les deux :
 
-| Écart observé sur les vraies photos | Changement |
+| Ce qu'on voit sur de vraies photos | Choix du générateur |
 |---|---|
-| Police et mise en page des coins différentes : 5, 3, 4 et 10 souvent manqués | **4 jeux de cartes** au lieu d'un ([decks.py](decks.py)), un jeu tiré par image |
-| Cartes inclinées au-delà de ±20° manquées (une photo de quinte flush : 3 cartes sur 5, et 5 sur 5 une fois redressée) | **Rotation à 360°** une carte sur deux, perspective jusqu'à 25 % |
-| Tissus, canapés, claviers en fond ; fausses cartes sur des objets clairs | **Fonds texturés** (bruit, rayures, fouillis de formes) et **leurres** en forme de carte, non annotés |
+| La police et la mise en page des coins changent d'un jeu à l'autre | **4 jeux de cartes** ([decks.py](decks.py)), un jeu tiré par image |
+| Les cartes sont dans toutes les orientations, et vues en biais | **Rotation à 360°** une carte sur deux, perspective jusqu'à 25 % |
+| Tissus, canapés, claviers en fond ; objets clairs qui ressemblent à des cartes | **Fonds texturés** (bruit, rayures, fouillis de formes) et **leurres** en forme de carte, non annotés |
 | Lampes, ombres, reflets, photos de téléphone compressées | **Éclairage** (lumière inégale, reflet, dominante de couleur, ombres portées), **basse résolution** et **compression JPEG** |
 | 4 à 5 cartes par photo | Jusqu'à **6 cartes**, et plus souvent 3 à 5 |
 
-Le test sur vraies photos reste le juge : un changement n'est utile que s'il améliore les chiffres sur le split `validation` réel.
+Le test sur vraies photos reste le juge : un choix n'est utile que s'il améliore les chiffres sur le split `validation` réel (voir le [README de la détection](../detection/README.md)).
 
 ### Les images des cartes
 
@@ -114,20 +114,20 @@ Le test sur vraies photos reste le juge : un changement n'est utile que s'il am�
 |---|---|
 | **4 jeux libres de droits** de Wikimedia Commons : Byron Knoll (domaine public), English pattern (CC0), « SVG playing cards 1 » (domaine public), « SVG playing cards 6 » (CC0) | Complets (52 cartes), au format anglo-américain (A, K, Q, J), avec des polices et des mises en page de coin différentes. D'autres jeux de Commons sont sous licence LGPL ou CC BY-SA, ou utilisent d'autres indices (R, D, V) : écartés. |
 | Téléchargement via l'**API Wikimedia**, qui fournit une version PNG de 250 px de large | Rien à convertir. |
-| Une **zone de coin par jeu** (`DeckStyle.corner` dans [decks.py](decks.py)), et le même rectangle tourné de 180° pour le coin bas-droit | Mesurée automatiquement sur les 40 cartes non figures de chaque jeu (zone d'encre du coin haut-gauche, liseré exclu, 2 px de marge), puis vérifiée à l'œil, figures comprises. Le rectangle de Byron Knoll, `[2, 2, 45, 93[`, est celui de la première version. |
+| Une **zone de coin par jeu** (`DeckStyle.corner` dans [decks.py](decks.py)), et le même rectangle tourné de 180° pour le coin bas-droit | Mesurée automatiquement sur les 40 cartes non figures de chaque jeu (zone d'encre du coin haut-gauche, liseré exclu, 2 px de marge), puis vérifiée à l'œil, figures comprises. |
 | « SVG playing cards 1 » : carte blanche dessinée sous l'encre (`white_fill`) | Ses PNG ne contiennent que l'encre, sans le fond blanc de la carte. |
 
 ### La composition d'une image ([scene.py](scene.py))
 
 | Décision | Valeur | Pourquoi |
 |---|---|---|
-| Taille de l'image | 384×384 | Les coins sont petits : à 256 px, le coin d'une petite carte ne faisait que 8×12 px. 384 px reste entraînable sur un portable. |
+| Taille de l'image | 384×384 | Les coins sont petits : à 256 px, le coin d'une petite carte ne ferait que 8×12 px. 384 px reste entraînable sur un portable. |
 | Nombre de cartes visé | 0 : 4 %, 1 : 12 %, 2 : 16 %, 3 : 20 %, 4 : 20 %, 5 : 16 %, 6 : 12 % (`N_CARDS_PROBS`) | Les **images vides** apprennent au détecteur à ne rien voir quand il n'y a rien, au lieu d'inventer une carte dans le fond. Les **images à une carte** imitent le cas typique d'une démo : on montre une carte à la webcam. |
 | Tirage des cartes | Sans remise | Une carte apparaît au plus une fois par image, comme avec un vrai jeu. |
 | Jeu de cartes | Un jeu tiré au hasard par image, parmi les 4 | Toutes les cartes d'une vraie table viennent du même jeu. |
 | Hauteur des cartes | Une hauteur par image, entre 75 px et un maximum qui dépend du nombre de cartes (300 px pour 0 ou 1 carte, 230 pour 2, 200 pour 3, 180 pour 4, 165 pour 5, 150 pour 6), puis ±10 % par carte (`MIN_CARD_HEIGHT`, `MAX_CARD_HEIGHT`) | À la webcam, une carte peut être tenue près de l'objectif ou posée loin. Tirer la taille par image imite une distance à la caméra : les cartes posées sur une même table ont à peu près la même taille. Le maximum baisse avec le nombre de cartes pour qu'elles tiennent toutes dans l'image. Le minimum garde des coins d'environ 10×19 px. |
 | Perspective | Intensité tirée par carte entre 0 et 25 % (`MAX_PERSPECTIVE`) ; chaque coin est rapproché du centre d'une fraction aléatoire de cette intensité | Imite une carte vue en biais, qui devient un trapèze. L'intensité par carte garde aussi des cartes presque à plat (environ 20 %), comme une carte tenue face à la caméra. |
-| Rotation | Une carte sur deux entre −30° et +30°, l'autre dans n'importe quelle orientation (`SMALL_ROTATION`, `FULL_ROTATION_PROB`) | Les cartes tenues face à la caméra restent presque droites ; sur une table vue de dessus, elles peuvent être dans tous les sens, et la première version ratait les cartes trop inclinées. |
+| Rotation | Une carte sur deux entre −30° et +30°, l'autre dans n'importe quelle orientation (`SMALL_ROTATION`, `FULL_ROTATION_PROB`) | Les cartes tenues face à la caméra restent presque droites ; sur une table vue de dessus, elles peuvent être dans tous les sens. |
 | Position | Tirée au hasard, carte toujours **entièrement** dans l'image | Simple, et chaque boîte correspond à une carte complète. |
 | Recouvrement | Autorisé, tant que **chaque carte garde au moins un coin visible à 70 %** (`MIN_CORNER_VISIBILITY`) | Les cartes peuvent se chevaucher comme sur une vraie table. La seule chose qui compte pour le détecteur est de pouvoir lire au moins un coin de chaque carte annotée. |
 | Essais de placement | 50 par carte | Au-delà, la carte est abandonnée et l'image en a une de moins. |
@@ -160,7 +160,7 @@ Les boîtes sont donc **exactes au pixel près**, sans annotation manuelle. Elle
 | Reflet | Une image sur cinq : une tache claire et floue | Une lampe qui se reflète sur une carte glacée. |
 | Flou gaussien | 35 % des images, rayon 0,3 à 1,8 px | Mise au point imparfaite. |
 | Basse résolution | 25 % des images : réduite à 40-75 % puis agrandie | Une webcam ou une photo de loin. |
-| Grain | Bruit gaussien, écart-type tiré entre 2 et 10 sur 255, ajouté sur l'image entière, cartes comprises | Imite le bruit d'un capteur. Il était d'abord appliqué au fond seulement : les cartes, parfaitement nettes, se distinguaient du fond par ce seul détail, un raccourci qu'un détecteur aurait pu apprendre. |
+| Grain | Bruit gaussien, écart-type tiré entre 2 et 10 sur 255, ajouté sur l'image entière, cartes comprises | Imite le bruit d'un capteur. Appliqué aussi sur les cartes : sinon, des cartes parfaitement nettes se distingueraient du fond par ce seul détail, un raccourci qu'un détecteur pourrait apprendre. |
 | Compression | Une image sur deux recompressée en JPEG de qualité 30 à 85, puis enregistrement en JPEG qualité 92 | Les photos de téléphone et les vidéos sont souvent fortement compressées. |
 
 ### La production du dataset ([generate_dataset.py](generate_dataset.py))

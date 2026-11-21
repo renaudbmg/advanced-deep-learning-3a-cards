@@ -155,9 +155,40 @@ Modèle `yolov8s` fine-tuné 35 epochs sur Colab (`checkpoints/yolov8s_ft35.pt`)
 - Une confusion visible sur les images d'erreurs : le coin d'un **6 vu à l'envers est lu comme un 9**.
 - Causes probables, à vérifier : le jeu des photos n'a pas la même police ni la même mise en page que le jeu de Byron Knoll du générateur, les cartes sont plus inclinées que les ±20° du générateur, et les fonds sont texturés. Une vraie photo d'une quinte flush à pique ne donnait que 3 cartes sur 5, et les 5 une fois l'image redressée de 30°.
 
-Ces résultats ont conduit à une **version 2 du générateur** : 4 jeux de cartes, rotations à 360°, fonds texturés, leurres, éclairage et compression (détail dans le [README du dataset](../dataset/README.md#pourquoi-le-générateur-a-été-durci-version-2)). Le modèle est à réentraîner sur cette version avec le [notebook Colab](colab_training.ipynb), qui donne aussi les chiffres sur les vraies photos. Résultats à ajouter ici :
+Ces résultats ont conduit à une **version 2 du générateur** : 4 jeux de cartes, rotations à 360°, fonds texturés, leurres, éclairage et compression (détail dans le [README du dataset](../dataset/README.md#pourquoi-le-générateur-a-été-durci-version-2)).
 
-| Générateur | Rappel réel (test) | Précision réelle (test) | Images exactes réelles (test) |
-|---|---|---|---|
-| Version 1 (`yolov8s_ft35.pt`) | 0,557 | 0,815 | 0,114 |
-| Version 2 | | | |
+### Version 2 du générateur
+
+Modèle `yolov8s` fine-tuné sur la version 2 avec le [notebook Colab](colab_training.ipynb). L'entraînement a été coupé par la limite de GPU de Colab après **29 epochs sur 50** : on garde les poids de l'epoch 29 (la meilleure du CSV, `mAP50-95` de validation synthétique de 0,8685, qui montait encore de 0,001 par epoch). Les poids sont sur Google Drive (`adl3a_runs/yolov8s_checkpoints/best.pt`) et en local dans `checkpoints/yolov8s_v2_ep29_best.pt`, hors git.
+
+**Réglage du seuil de confiance, sur le split `validation` réel** (128 photos, `--imgsz 384`) :
+
+| `--conf` | Précision | Rappel | Fantômes | Manquées | Images exactes |
+|---|---|---|---|---|---|
+| 0,25 | 0,832 | 0,975 | 109 | 14 | 0,438 |
+| 0,40 | 0,870 | 0,975 | 81 | 14 | 0,531 |
+| 0,55 | 0,910 | 0,971 | 53 | 16 | 0,625 |
+| 0,70 | 0,953 | 0,946 | 26 | 30 | 0,664 |
+| **0,80** | **0,986** | 0,903 | 7 | 54 | **0,688** |
+
+`--imgsz 640` n'améliore rien (0,492 images exactes à `conf 0,25`, 0,648 à 0,7, 0,641 à 0,8) : on garde 384. Les fausses cartes ont une confiance basse, donc un seuil plus haut les enlève presque toutes au prix de quelques cartes manquées. Entre 0,70 et 0,80, l'écart est de 3 images sur 128, dans le bruit ; on retient **0,80**, qui maximise les images exactes (le critère fixé d'avance).
+
+**Résultats finaux, `--conf 0,8` et `--imgsz 384` pour toutes les colonnes** (le test réel n'a été lancé qu'une fois, après ces réglages) :
+
+| Métrique | v1 : test synthétique v1 | v1 : test réel | v2 : test synthétique v2 | v2 : test réel |
+|---|---|---|---|---|
+| Précision par carte | 1,000 | 0,815 | 1,000 | **0,988** |
+| Rappel par carte | 0,999 | 0,557 | 0,971 | **0,871** |
+| Cartes fantômes | 0 | 106 | 1 | 9 |
+| Images exactes | 0,999 | 0,114 | 0,915 | **0,622** |
+| mAP50 / mAP50-95 par coin | 0,995 / 0,909 | non mesurable | 0,994 / 0,866 | non mesurable |
+| Cartes bien localisées | | 0,949 | | 1,000 |
+| Relations gauche/droite, haut/bas | | 0,952 / 0,961 | | 0,991 / 0,986 |
+| IoU des cartes à deux coins (moyenne, part ≥ 0,5) | | 0,597 ; 0,729 | | 0,517 ; 0,572 |
+
+Les colonnes v1 sont celles du tableau précédent, mesurées à `conf 0,25` ; les colonnes v2 à `conf 0,8`. À `conf 0,25`, le v2 donne sur la validation réelle 0,832 de précision, 0,975 de rappel et 0,438 d'images exactes (voir le tableau de réglage ci-dessus). Le test synthétique v2 est régénéré en local avec la même graine qu'à l'entraînement (`--n-test 2000`, seed fixe par split).
+
+**Lecture :**
+- **Le gain sur de vraies photos est très net** : les images exactes passent de 11 % à 62 %, le rappel de 0,56 à 0,87 et la précision de 0,82 à 0,99. Le modèle ne se trompe presque plus de carte (9 fausses cartes sur 739 annoncées) ; ce qui reste, ce sont des cartes manquées (108 sur 838), surtout des 5 et des 6 (rappel de 0,74 et 0,79 sur validation, au moins 0,86 pour les autres rangs).
+- **La position est quasi parfaite** : 100 % des cartes trouvées sont bien placées, et l'ordre gauche/droite et haut/bas est juste à 99 %. C'est ce dont le LLM aura besoin.
+- **La tâche synthétique est plus difficile que celle du v1** (0,915 d'images exactes contre 0,999), comme prévu : les images contiennent des fonds texturés, des rotations à 360° et plus de cartes.

@@ -2,3 +2,4 @@ numpy
 pillow
 matplotlib
 jupyter
+ultralytics
